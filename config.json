@@ -1,0 +1,96 @@
+{
+  "library_root": "C:\\Work\\KiCad_Library",
+
+  "model_env": "NEXTES_3DMODEL_DIR",
+
+  "backup_dir": "backup",
+
+  "log_dir": "log",
+
+  "categories": {
+
+    "C": {
+      "symbol_library": "NEXTES_C.kicad_sym",
+      "footprint_library": "NEXTES_C.pretty",
+      "model_library": "NEXTES_C.3dshapes"
+    },
+
+    "R": {
+      "symbol_library": "NEXTES_R.kicad_sym",
+      "footprint_library": "NEXTES_R.pretty",
+      "model_library": "NEXTES_R.3dshapes"
+    },
+
+    "L": {
+      "symbol_library": "NEXTES_L.kicad_sym",
+      "footprint_library": "NEXTES_L.pretty",
+      "model_library": "NEXTES_L.3dshapes"
+    },
+
+    "D": {
+      "symbol_library": "NEXTES_D.kicad_sym",
+      "footprint_library": "NEXTES_D.pretty",
+      "model_library": "NEXTES_D.3dshapes"
+    },
+
+    "IC": {
+      "symbol_library": "NEXTES_IC.kicad_sym",
+      "footprint_library": "NEXTES_IC.pretty",
+      "model_library": "NEXTES_IC.3dshapes"
+    },
+
+    "FET": {
+      "symbol_library": "NEXTES_FET.kicad_sym",
+      "footprint_library": "NEXTES_FET.pretty",
+      "model_library": "NEXTES_FET.3dshapes"
+    },
+
+    "Tr": {
+      "symbol_library": "NEXTES_Tr.kicad_sym",
+      "footprint_library": "NEXTES_Tr.pretty",
+      "model_library": "NEXTES_Tr.3dshapes"
+    },
+
+    "F": {
+      "symbol_library": "NEXTES_F.pretty",
+      "footprint_library": "NEXTES_F.pretty",
+      "model_library": "NEXTES_F.3dshapes"
+    },
+
+    "LED": {
+      "symbol_library": "NEXTES_LED.kicad_sym",
+      "footprint_library": "NEXTES_LED.pretty",
+      "model_library": "NEXTES_LED.3dshapes"
+    },
+
+    "Photo_x": {
+      "symbol_library": "NEXTES_Photo_x.kicad_sym",
+      "footprint_library": "NEXTES_Photo_x.pretty",
+      "model_library": "NEXTES_Photo_x.3dshapes"
+    },
+
+    "CN": {
+      "symbol_library": "NEXTES_CN.kicad_sym",
+      "footprint_library": "NEXTES_CN.pretty",
+      "model_library": "NEXTES_CN.3dshapes"
+    },
+
+    "Trans": {
+      "symbol_library": "NEXTES_Trans.kicad_sym",
+      "footprint_library": "NEXTES_Trans.pretty",
+      "model_library": "NEXTES_Trans.3dshapes"
+    },
+
+    "ZD": {
+      "symbol_library": "NEXTES_ZD.kicad_sym",
+      "footprint_library": "NEXTES_ZD.pretty",
+      "model_library": "NEXTES_ZD.3dshapes"
+    },
+
+    "Others": {
+      "symbol_library": "NEXTES_Others.kicad_sym",
+      "footprint_library": "NEXTES_Others.pretty",
+      "model_library": "NEXTES_Others.3dshapes"
+    }
+  }
+}
