@@ -1,3 +1,6 @@
+import getpass
+
+from config import Config
 from register_part import RegisterPart
 
 
@@ -33,6 +36,15 @@ def main():
         "Datasheet URL : "
     ).strip()
 
+    default_user = (
+        Config("config.json").default_registrant
+        or getpass.getuser()
+    )
+
+    registrant = input(
+        f"Registrant [{default_user}] : "
+    ).strip() or default_user
+
     mgr = RegisterPart(
         "config.json"
     )
@@ -43,7 +55,8 @@ def main():
         symbol_file=symbol_file,
         footprint_file=footprint_file,
         model_file=model_file,
-        datasheet_url=datasheet_url
+        datasheet_url=datasheet_url,
+        registrant=registrant
     )
 
     print()

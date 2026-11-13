@@ -1,6 +1,8 @@
 {
   "library_root": "C:\\Work\\KiCad_Library",
 
+  "default_registrant": "",
+
   "model_env": "NEXTES_3DMODEL_DIR",
 
   "backup_dir": "backup",
@@ -52,7 +54,7 @@
     },
 
     "F": {
-      "symbol_library": "NEXTES_F.pretty",
+      "symbol_library": "NEXTES_F.kicad_sym",
       "footprint_library": "NEXTES_F.pretty",
       "model_library": "NEXTES_F.3dshapes"
     },

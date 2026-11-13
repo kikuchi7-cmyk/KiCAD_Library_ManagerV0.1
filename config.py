@@ -48,10 +48,17 @@ class Config:
             "model_env"
         ]
 
+    @property
+    def default_registrant(self):
+        return self.data.get(
+            "default_registrant",
+            ""
+        )
+
     def get_category(
         self,
         category
     ):
         return self.data[
             "categories"
-        ][category]
+        ][category]

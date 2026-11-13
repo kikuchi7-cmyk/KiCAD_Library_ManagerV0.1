@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 
 from config import Config
@@ -6,6 +7,7 @@ from logger import write_log
 from symbol_manager import SymbolManager
 from footprint_manager import FootprintManager
 from backup_manager import BackupManager
+from validators import validate_part_name
 
 
 class RegisterPart:
@@ -28,14 +30,64 @@ class RegisterPart:
             / self.cfg.data["backup_dir"]
         )
 
+        # ログCSVへの書き込みに失敗したらFalse
+        self.log_ok = True
+
+    def _log(self, *args):
+
+        if not write_log(self.log_dir, *args):
+            self.log_ok = False
+
+    # ------------------------------------------------
+    # パス
+    # ------------------------------------------------
+    def get_paths(self, category, part_name):
+        """
+        (symbol_library, footprint_library, model_library,
+         dst_mod, dst_step) を返す
+        """
+
+        cat = self.cfg.get_category(category)
+
+        symbol_library = (
+            self.library_root / "sym"
+            / cat["symbol_library"]
+        )
+
+        footprint_library = (
+            self.library_root / "mod"
+            / cat["footprint_library"]
+        )
+
+        model_library = (
+            self.library_root / "3dmodels"
+            / cat["model_library"]
+        )
+
+        dst_mod = (
+            footprint_library
+            / f"{part_name}.kicad_mod"
+        )
+
+        dst_step = (
+            model_library
+            / f"{part_name}.step"
+        )
+
+        return (
+            symbol_library,
+            footprint_library,
+            model_library,
+            dst_mod,
+            dst_step
+        )
+
     def create_empty_library(
         self,
         library_file
     ):
 
-        library_file = Path(
-            library_file
-        )
+        library_file = Path(library_file)
 
         if library_file.exists():
             return
@@ -54,6 +106,98 @@ class RegisterPart:
             encoding="utf-8"
         )
 
+    # ------------------------------------------------
+    # 事前チェック(ファイルを一切変更しない)
+    # ------------------------------------------------
+    def preflight(
+        self,
+        part_name,
+        category,
+        symbol_file,
+        footprint_file,
+        model_file
+    ):
+
+        validate_part_name(part_name)
+
+        if category not in self.cfg.data["categories"]:
+            raise ValueError(
+                f"Unknown Category : {category}"
+            )
+
+        for label, path in (
+            ("Symbol", symbol_file),
+            ("Footprint", footprint_file),
+            ("STEP", model_file)
+        ):
+
+            if not path or not Path(path).is_file():
+                raise FileNotFoundError(
+                    f"{label} file not found : {path}"
+                )
+
+        names = SymbolManager.top_level_symbol_names(
+            SymbolManager.read(symbol_file)
+        )
+
+        if not names:
+            raise ValueError(
+                "シンボルファイルにシンボルが見つかりません"
+            )
+
+        if len(names) > 1:
+            raise ValueError(
+                "シンボルファイルに複数のシンボルが含まれています"
+                f"({len(names)}個: {', '.join(names)})。\n"
+                "1部品につき1シンボルのファイルを指定してください。"
+            )
+
+        if not re.search(
+            r'\(footprint\s+"',
+            FootprintManager.read(footprint_file)
+        ):
+            raise ValueError(
+                "フットプリントが KiCad 6 以降の形式ではありません"
+            )
+
+    def check_inputs(
+        self,
+        part_name,
+        category,
+        symbol_file,
+        footprint_file,
+        model_file,
+        registrant="",
+        action="REGISTER"
+    ):
+        """preflight + 失敗時はログに残して再送出"""
+
+        try:
+
+            self.preflight(
+                part_name,
+                category,
+                symbol_file,
+                footprint_file,
+                model_file
+            )
+
+        except Exception as ex:
+
+            self._log(
+                part_name,
+                category,
+                "",
+                f"ERROR:{str(ex)}",
+                registrant,
+                action
+            )
+
+            raise
+
+    # ------------------------------------------------
+    # 登録
+    # ------------------------------------------------
     def register(
         self,
         part_name,
@@ -61,36 +205,30 @@ class RegisterPart:
         symbol_file,
         footprint_file,
         model_file,
-        datasheet_url=""
+        datasheet_url="",
+        registrant="",
+        action="REGISTER"
     ):
 
-        cat = self.cfg.get_category(
-            category
+        self.check_inputs(
+            part_name,
+            category,
+            symbol_file,
+            footprint_file,
+            model_file,
+            registrant,
+            action
         )
 
-        symbol_library = (
-            self.library_root
-            / "sym"
-            / cat[
-                "symbol_library"
-            ]
-        )
+        cat = self.cfg.get_category(category)
 
-        footprint_library = (
-            self.library_root
-            / "mod"
-            / cat[
-                "footprint_library"
-            ]
-        )
-
-        model_library = (
-            self.library_root
-            / "3dmodels"
-            / cat[
-                "model_library"
-            ]
-        )
+        (
+            symbol_library,
+            footprint_library,
+            model_library,
+            dst_mod,
+            dst_step
+        ) = self.get_paths(category, part_name)
 
         self.create_empty_library(
             symbol_library
@@ -106,17 +244,11 @@ class RegisterPart:
             exist_ok=True
         )
 
-        dst_mod = (
-            footprint_library
-            / f"{part_name}.kicad_mod"
-        )
-
-        dst_step = (
-            model_library
-            / f"{part_name}.step"
-        )
-
         backup_file = None
+
+        # この実行で作成したファイルだけを巻き戻す
+        created_mod = False
+        created_step = False
 
         try:
 
@@ -132,15 +264,9 @@ class RegisterPart:
                     f"{part_name}"
                 )
 
-            library_text = (
-                symbol_library.read_text(
-                    encoding="utf-8"
-                )
-            )
-
-            if (
-                f'(symbol "{part_name}"'
-                in library_text
+            if SymbolManager.has_symbol(
+                symbol_library,
+                part_name
             ):
                 raise Exception(
                     f"Duplicate Symbol : "
@@ -148,43 +274,43 @@ class RegisterPart:
                 )
 
             backup_file = (
-                BackupManager
-                .backup_file(
+                BackupManager.backup_file(
                     symbol_library,
                     self.backup_dir
                 )
             )
 
+            raw_symbol = SymbolManager.read(
+                symbol_file
+            )
+
+            # Part Name欄の名前でシンボル名/Valueを書き換える
             raw_symbol = (
-                SymbolManager.read(
-                    symbol_file
+                SymbolManager.set_symbol_name(
+                    raw_symbol,
+                    part_name
                 )
             )
 
             raw_symbol = (
-                SymbolManager
-                .set_footprint(
+                SymbolManager.set_footprint(
                     raw_symbol,
                     Path(
-                        cat[
-                            "footprint_library"
-                        ]
+                        cat["footprint_library"]
                     ).stem,
                     part_name
                 )
             )
 
             raw_symbol = (
-                SymbolManager
-                .set_datasheet(
+                SymbolManager.set_datasheet(
                     raw_symbol,
                     datasheet_url
                 )
             )
 
             symbol_block = (
-                SymbolManager
-                .extract_symbol(
+                SymbolManager.extract_symbol(
                     raw_symbol
                 )
             )
@@ -198,9 +324,7 @@ class RegisterPart:
                 "${"
                 + self.cfg.model_env
                 + "}/"
-                + cat[
-                    "model_library"
-                ]
+                + cat["model_library"]
                 + "/"
                 + f"{part_name}.step"
             )
@@ -223,51 +347,49 @@ class RegisterPart:
                 dst_mod,
                 footprint_text
             )
+            created_mod = True
 
             shutil.copy2(
                 model_file,
                 dst_step
             )
+            created_step = True
 
-            write_log(
-                self.log_dir,
+            self._log(
                 part_name,
                 category,
-                Path(
-                    footprint_file
-                ).stem,
-                "SUCCESS"
+                Path(footprint_file).stem,
+                "SUCCESS",
+                registrant,
+                action
             )
 
-            print(
-                f"[OK] {part_name}"
-            )
+            print(f"[OK] {part_name}")
 
         except Exception as ex:
 
             if (
                 backup_file
-                and Path(
-                    backup_file
-                ).exists()
+                and Path(backup_file).exists()
             ):
                 shutil.copy2(
                     backup_file,
                     symbol_library
                 )
 
-            if dst_mod.exists():
+            if created_mod and dst_mod.exists():
                 dst_mod.unlink()
 
-            if dst_step.exists():
+            if created_step and dst_step.exists():
                 dst_step.unlink()
 
-            write_log(
-                self.log_dir,
+            self._log(
                 part_name,
                 category,
                 "",
-                f"ERROR:{str(ex)}"
+                f"ERROR:{str(ex)}",
+                registrant,
+                action
             )
 
             raise

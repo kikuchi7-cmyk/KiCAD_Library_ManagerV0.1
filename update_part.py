@@ -1,180 +1,165 @@
 from pathlib import Path
+from datetime import datetime
 import shutil
 
 from config import Config
 from register_part import RegisterPart
+from symbol_manager import SymbolManager
 
 
 class UpdatePart:
+    """
+    既存部品の修正更新。
+
+    1. 事前チェック(ここで失敗しても何も変更しない)
+    2. 既存部品(シンボル/フットプリント/STEP)をバックアップ
+    3. 既存部品を削除して再登録
+    4. 途中で失敗したらバックアップから元に戻す
+    """
 
     def __init__(
         self,
         config_path="config.json"
     ):
 
-        self.cfg = Config(
-            config_path
-        )
+        self.cfg = Config(config_path)
 
-        self.library_root = (
-            self.cfg.library_root
-        )
+        self.reg = RegisterPart(config_path)
 
-    def _remove_symbol(
-        self,
-        library_file,
-        part_name
-    ):
+        self.library_root = self.cfg.library_root
 
-        library_file = Path(
-            library_file
-        )
+        self.backup_dir = self.reg.backup_dir
 
-        if not library_file.exists():
-            return False
-
-        text = library_file.read_text(
-            encoding="utf-8"
-        )
-
-        start_tag = (
-            f'(symbol "{part_name}"'
-        )
-
-        pos = text.find(
-            start_tag
-        )
-
-        if pos < 0:
-            return False
-
-        depth = 0
-        end_pos = None
-
-        for i in range(
-            pos,
-            len(text)
-        ):
-
-            if text[i] == "(":
-                depth += 1
-
-            elif text[i] == ")":
-
-                depth -= 1
-
-                if depth == 0:
-
-                    end_pos = i
-                    break
-
-        if end_pos is None:
-            return False
-
-        text = (
-            text[:pos]
-            + text[end_pos + 1:]
-        )
-
-        library_file.write_text(
-            text,
-            encoding="utf-8"
-        )
-
-        return True
-
-    def find_part(
-        self,
-        part_name
-    ):
+    # ------------------------------------------------
+    # 検出
+    # ------------------------------------------------
+    def find_part(self, part_name):
+        """
+        シンボル / フットプリント / STEP のどれか1つでも
+        登録されていれば、そのカテゴリを返す。
+        """
 
         result = []
 
-        for category in (
-            self.cfg.data[
-                "categories"
-            ]
-        ):
+        for category in self.cfg.data["categories"]:
 
-            cat = (
-                self.cfg.get_category(
-                    category
-                )
-            )
-
-            fp = (
-                self.library_root
-                / "mod"
-                / cat[
-                    "footprint_library"
-                ]
-                / f"{part_name}.kicad_mod"
-            )
-
-            if fp.exists():
-
-                result.append(
-                    category
-                )
-
-        return result
-
-    def delete_existing_part(
-        self,
-        part_name
-    ):
-
-        found = self.find_part(
-            part_name
-        )
-
-        for category in found:
-
-            cat = (
-                self.cfg.get_category(
-                    category
-                )
-            )
-
-            symbol_lib = (
-                self.library_root
-                / "sym"
-                / cat[
-                    "symbol_library"
-                ]
-            )
-
-            footprint_file = (
-                self.library_root
-                / "mod"
-                / cat[
-                    "footprint_library"
-                ]
-                / f"{part_name}.kicad_mod"
-            )
-
-            step_file = (
-                self.library_root
-                / "3dmodels"
-                / cat[
-                    "model_library"
-                ]
-                / f"{part_name}.step"
-            )
-
-            self._remove_symbol(
+            (
                 symbol_lib,
+                _fp_lib,
+                _model_lib,
+                dst_mod,
+                dst_step
+            ) = self.reg.get_paths(
+                category,
                 part_name
             )
 
-            if footprint_file.exists():
-                footprint_file.unlink()
+            if (
+                dst_mod.exists()
+                or dst_step.exists()
+                or SymbolManager.has_symbol(
+                    symbol_lib,
+                    part_name
+                )
+            ):
+                result.append(category)
 
-            if step_file.exists():
-                step_file.unlink()
+        return result
 
-        return found
+    # ------------------------------------------------
+    # バックアップ / 復元 / 削除
+    # ------------------------------------------------
+    def _snapshot(self, part_name, found):
+        """
+        削除前の状態を backup/<日時>_update_<部品名>/<カテゴリ>/ に保存。
+        [(バックアップ先, 元の場所), ...] を返す。
+        """
 
+        stamp = datetime.now().strftime(
+            "%Y%m%d_%H%M%S"
+        )
+
+        snap_dir = (
+            self.backup_dir
+            / f"{stamp}_update_{part_name}"
+        )
+
+        items = []
+
+        for category in found:
+
+            (
+                symbol_lib,
+                _fp_lib,
+                _model_lib,
+                dst_mod,
+                dst_step
+            ) = self.reg.get_paths(
+                category,
+                part_name
+            )
+
+            cat_dir = snap_dir / category
+            cat_dir.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+            for src in (
+                symbol_lib,
+                dst_mod,
+                dst_step
+            ):
+
+                if src.exists():
+
+                    dst = cat_dir / src.name
+
+                    shutil.copy2(src, dst)
+
+                    items.append((dst, src))
+
+        return snap_dir, items
+
+    @staticmethod
+    def _restore(items):
+
+        for backup, original in items:
+
+            original.parent.mkdir(
+                parents=True,
+                exist_ok=True
+            )
+
+            shutil.copy2(backup, original)
+
+    def _delete_from(self, category, part_name):
+
+        (
+            symbol_lib,
+            _fp_lib,
+            _model_lib,
+            dst_mod,
+            dst_step
+        ) = self.reg.get_paths(
+            category,
+            part_name
+        )
+
+        SymbolManager.remove_symbol(
+            symbol_lib,
+            part_name
+        )
+
+        if dst_mod.exists():
+            dst_mod.unlink()
+
+        if dst_step.exists():
+            dst_step.unlink()
+
+    # ------------------------------------------------
+    # 更新
+    # ------------------------------------------------
     def update(
         self,
         part_name,
@@ -182,24 +167,80 @@ class UpdatePart:
         symbol_file,
         footprint_file,
         model_file,
-        datasheet_url=""
+        datasheet_url="",
+        registrant=""
     ):
 
-        found = (
-            self.delete_existing_part(
-                part_name
+        # 1) 事前チェック(失敗してもライブラリは無傷)
+        self.reg.check_inputs(
+            part_name,
+            category,
+            symbol_file,
+            footprint_file,
+            model_file,
+            registrant,
+            "UPDATE"
+        )
+
+        found = self.find_part(part_name)
+
+        # 2) バックアップ
+        snap_dir, items = self._snapshot(
+            part_name,
+            found
+        )
+
+        try:
+
+            # 3) 削除 -> 再登録
+            for cat_name in found:
+                self._delete_from(
+                    cat_name,
+                    part_name
+                )
+
+            self.reg.register(
+                part_name=part_name,
+                category=category,
+                symbol_file=symbol_file,
+                footprint_file=footprint_file,
+                model_file=model_file,
+                datasheet_url=datasheet_url,
+                registrant=registrant,
+                action="UPDATE"
             )
-        )
 
-        mgr = RegisterPart()
+        except Exception as ex:
 
-        mgr.register(
-            part_name=part_name,
-            category=category,
-            symbol_file=symbol_file,
-            footprint_file=footprint_file,
-            model_file=model_file,
-            datasheet_url=datasheet_url
-        )
+            # 4) 元に戻す
+            try:
+
+                self._restore(items)
+
+                self.reg._log(
+                    part_name,
+                    category,
+                    "",
+                    "ROLLBACK:restored previous state",
+                    registrant,
+                    "UPDATE"
+                )
+
+            except Exception as ex2:
+
+                raise RuntimeError(
+                    f"{ex}\n\n"
+                    f"元に戻す処理にも失敗しました: {ex2}\n"
+                    f"更新前のファイルは次のフォルダにあります:\n"
+                    f"{snap_dir}"
+                ) from ex
+
+            if items:
+                raise RuntimeError(
+                    f"{ex}\n\n"
+                    "更新前の状態に復元しました。"
+                ) from ex
+
+            raise
 
         return found
