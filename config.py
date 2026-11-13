@@ -55,6 +55,13 @@ class Config:
             ""
         )
 
+    @property
+    def kicad_cli_path(self):
+        return self.data.get(
+            "kicad_cli_path",
+            ""
+        )
+
     def get_category(
         self,
         category

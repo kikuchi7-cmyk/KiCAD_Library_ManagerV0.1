@@ -1,6 +1,7 @@
 from pathlib import Path
 import re
 import shutil
+import tempfile
 
 from config import Config
 from logger import write_log
@@ -8,6 +9,7 @@ from symbol_manager import SymbolManager
 from footprint_manager import FootprintManager
 from backup_manager import BackupManager
 from validators import validate_part_name
+from kicad_cli import find_kicad_cli, upgrade_footprint
 
 
 class RegisterPart:
@@ -32,6 +34,9 @@ class RegisterPart:
 
         # ログCSVへの書き込みに失敗したらFalse
         self.log_ok = True
+
+        # 旧形式フットプリントを変換した場合True
+        self.converted_legacy = False
 
     def _log(self, *args):
 
@@ -152,12 +157,26 @@ class RegisterPart:
                 "1部品につき1シンボルのファイルを指定してください。"
             )
 
-        if not re.search(
-            r'\(footprint\s+"',
-            FootprintManager.read(footprint_file)
-        ):
+        fp_text = FootprintManager.read(footprint_file)
+
+        if FootprintManager.is_legacy(fp_text):
+
+            if not find_kicad_cli(
+                self.cfg.kicad_cli_path
+            ):
+                raise ValueError(
+                    "フットプリントが旧形式(KiCad 5以前)です。\n"
+                    "KiCadのフットプリントエディタで開いて保存し直すか、"
+                    "KiCad本体(kicad-cli)をインストールしてください。\n"
+                    "(kicad-cliの場所は config.json の "
+                    "kicad_cli_path でも指定できます)"
+                )
+
+        elif not FootprintManager.is_modern(fp_text):
+
             raise ValueError(
-                "フットプリントが KiCad 6 以降の形式ではありません"
+                "フットプリントの形式を認識できません。"
+                "KiCadで開いて保存し直してください。"
             )
 
     def check_inputs(
@@ -198,6 +217,77 @@ class RegisterPart:
     # ------------------------------------------------
     # 登録
     # ------------------------------------------------
+    def ensure_modern_footprint(
+        self,
+        footprint_file,
+        part_name,
+        category,
+        registrant="",
+        action="REGISTER"
+    ):
+        """
+        旧形式なら kicad-cli で新形式へ変換して (変換後パス, 作業フォルダ) を返す。
+        新形式ならそのまま (元パス, None)。元ファイルは変更しない。
+        """
+
+        text = FootprintManager.read(footprint_file)
+
+        if not FootprintManager.is_legacy(text):
+            return Path(footprint_file), None
+
+        work_dir = None
+
+        try:
+
+            cli = find_kicad_cli(
+                self.cfg.kicad_cli_path
+            )
+
+            if not cli:
+                raise RuntimeError(
+                    "kicad-cli が見つかりません"
+                )
+
+            # ユーザープロファイル(TEMP)ではなくライブラリ配下に作る
+            base = self.library_root / "_work"
+
+            base.mkdir(parents=True, exist_ok=True)
+
+            work_dir = Path(
+                tempfile.mkdtemp(dir=base)
+            )
+
+            converted = upgrade_footprint(
+                cli,
+                footprint_file,
+                work_dir
+            )
+
+            self.converted_legacy = True
+
+            return converted, work_dir
+
+        except Exception as ex:
+
+            self.cleanup(work_dir)
+
+            self._log(
+                part_name,
+                category,
+                "",
+                f"ERROR:{str(ex)}",
+                registrant,
+                action
+            )
+
+            raise
+
+    @staticmethod
+    def cleanup(work_dir):
+
+        if work_dir:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
     def register(
         self,
         part_name,
@@ -219,6 +309,49 @@ class RegisterPart:
             registrant,
             action
         )
+
+        package = Path(footprint_file).stem
+
+        fp_path, work_dir = (
+            self.ensure_modern_footprint(
+                footprint_file,
+                part_name,
+                category,
+                registrant,
+                action
+            )
+        )
+
+        try:
+
+            self._do_register(
+                part_name,
+                category,
+                symbol_file,
+                str(fp_path),
+                model_file,
+                datasheet_url,
+                registrant,
+                action,
+                package
+            )
+
+        finally:
+
+            self.cleanup(work_dir)
+
+    def _do_register(
+        self,
+        part_name,
+        category,
+        symbol_file,
+        footprint_file,
+        model_file,
+        datasheet_url,
+        registrant,
+        action,
+        package
+    ):
 
         cat = self.cfg.get_category(category)
 
@@ -358,7 +491,7 @@ class RegisterPart:
             self._log(
                 part_name,
                 category,
-                Path(footprint_file).stem,
+                package,
                 "SUCCESS",
                 registrant,
                 action

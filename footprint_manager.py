@@ -5,6 +5,25 @@ import re
 class FootprintManager:
 
     @staticmethod
+    def is_legacy(footprint_text):
+        """KiCad 5系以前の (module ...) 形式ならTrue"""
+
+        return bool(
+            re.match(r'\s*\(module\b', footprint_text)
+        )
+
+    @staticmethod
+    def is_modern(footprint_text):
+        """KiCad 6以降の (footprint "名前" ...) 形式ならTrue"""
+
+        return bool(
+            re.match(
+                r'\s*\(footprint\s+"',
+                footprint_text
+            )
+        )
+
+    @staticmethod
     def read(filepath):
         return Path(filepath).read_text(
             encoding="utf-8"

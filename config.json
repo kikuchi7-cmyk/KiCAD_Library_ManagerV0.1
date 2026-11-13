@@ -3,6 +3,8 @@
 
   "default_registrant": "",
 
+  "kicad_cli_path": "",
+
   "model_env": "NEXTES_3DMODEL_DIR",
 
   "backup_dir": "backup",

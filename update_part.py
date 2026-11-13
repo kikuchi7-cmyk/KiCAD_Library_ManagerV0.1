@@ -182,6 +182,44 @@ class UpdatePart:
             "UPDATE"
         )
 
+        # 旧形式フットプリントは、削除より前に変換しておく
+        fp_path, work_dir = (
+            self.reg.ensure_modern_footprint(
+                footprint_file,
+                part_name,
+                category,
+                registrant,
+                "UPDATE"
+            )
+        )
+
+        try:
+
+            return self._update_impl(
+                part_name,
+                category,
+                symbol_file,
+                str(fp_path),
+                model_file,
+                datasheet_url,
+                registrant
+            )
+
+        finally:
+
+            self.reg.cleanup(work_dir)
+
+    def _update_impl(
+        self,
+        part_name,
+        category,
+        symbol_file,
+        footprint_file,
+        model_file,
+        datasheet_url,
+        registrant
+    ):
+
         found = self.find_part(part_name)
 
         # 2) バックアップ

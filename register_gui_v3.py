@@ -226,6 +226,9 @@ class RegisterGUI:
 
             mgr.register(**self._args())
 
+            if mgr.converted_legacy:
+                self.log('旧形式のフットプリントをKiCadで新形式に変換して登録しました')
+
             self.log('SUCCESS')
             self.warn_if_log_failed(mgr)
 
@@ -275,6 +278,9 @@ class RegisterGUI:
                 self.log("UPDATED FROM : " + ", ".join(found))
             else:
                 self.log("(既存なし: 新規登録として処理)")
+
+            if updater.reg.converted_legacy:
+                self.log('旧形式のフットプリントをKiCadで新形式に変換して登録しました')
 
             self.log("UPDATE SUCCESS")
             self.warn_if_log_failed(updater.reg)
